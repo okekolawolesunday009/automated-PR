@@ -40,7 +40,7 @@ jobs:
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
       - name: start rabbitmq, celery worker and nginx
         run: |
-          docker-compose -f docker-compose.yml up -d rabbitmq worker nginx
+          docker-compose -f docker-compose.yml up -d rabbitmq celery_worker nginx
           
 
       - name: Build API image for this PR

@@ -1,5 +1,5 @@
 # .github/workflows/pr-preview.yml
-name: PR preview deploys
+name: PR preview deployss
 
 on:
   pull_request:
@@ -38,6 +38,9 @@ jobs:
           echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${PR}"         >> $GITHUB_ENV
           echo "HOST_PORT=${HOST_PORT}"                           >> $GITHUB_ENV
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
+      - name: start rabbit and worker
+        run: |
+          docker-compose -f docker-compose.yml up -d 
 
       - name: Build API image for this PR
         run: |
@@ -62,8 +65,7 @@ jobs:
             --restart unless-stopped \
             -e ENV=preview \
             -e DEBUG=true \
-            -e RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@rabbitmq_dev:5672/ \
-            -e DATABASE_URL=${{ secrets.DEV_DATABASE_URL }} \
+            -e RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ \
             "${IMAGE_NAME}:pr-${PR_NUMBER}"
 
       - name: Wait for container to be ready
@@ -87,7 +89,7 @@ jobs:
           cat > /etc/nginx/sites-available/pr-${PR_NUMBER}.conf << EOF
           server {
               listen 80;
-              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }};
+              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }} _;
 
               location / {
                   proxy_pass         http://127.0.0.1:${HOST_PORT};

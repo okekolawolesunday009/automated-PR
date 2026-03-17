@@ -87,7 +87,7 @@ jobs:
 
       - name: Register Nginx subdomain
         run: |
-          # Write to /tmp first (no sudo needed)
+          # Write config into the nginx container's config directory
           cat > /tmp/pr-${PR_NUMBER}.conf << EOF
           server {
               listen 80;
@@ -105,12 +105,13 @@ jobs:
           }
           EOF
 
-          # Move into nginx with sudo
-          sudo cp /tmp/pr-${PR_NUMBER}.conf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf
-          sudo ln -sf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf \
-                      /etc/nginx/sites-enabled/pr-${PR_NUMBER}.conf
-          sudo nginx -t && sudo nginx -s reload
+          # Copy the config file into the running nginx container
+          docker cp /tmp/pr-${PR_NUMBER}.conf nginx_dev:/etc/nginx/conf.d/pr-${PR_NUMBER}.conf
 
+          # Test config then reload inside the container
+          docker exec nginx nginx -t
+          docker exec nginx nginx -s reload
+          
       - name: Comment preview URL on PR
         uses: actions/github-script@v7
         with:

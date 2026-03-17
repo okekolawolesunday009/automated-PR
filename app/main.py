@@ -35,3 +35,6 @@ async def root(request: Request):
         "status": "error",
         "message": "Use ?talktome or ?sendmail=mailto:test@example.com"
     }
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}

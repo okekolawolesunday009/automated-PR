@@ -1,0 +1,199 @@
+# .github/workflows/pr-preview.yml
+name: PR preview deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - preview
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: pr-preview-app
+  CONTAINER_PREFIX: pr-preview
+  NETWORK: pr_preview_network
+
+jobs:
+  deploy-preview:
+    if: github.event.action != 'closed'
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set preview variables
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          HOST_PORT=$((8100 + PR % 900))
+          echo "PR_NUMBER=$PR"                                    >> $GITHUB_ENV
+          echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${PR}"         >> $GITHUB_ENV
+          echo "HOST_PORT=${HOST_PORT}"                           >> $GITHUB_ENV
+          echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
+
+      - name: Build API image for this PR
+        run: |
+          docker build -t "${IMAGE_NAME}:pr-${PR_NUMBER}" .
+
+      - name: Ensure preview network exists
+        run: docker network create "${NETWORK}" || true
+
+      - name: Stop existing container if any
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
+            docker stop "${CONTAINER_NAME}"
+            docker rm "${CONTAINER_NAME}"
+          fi
+
+      - name: Start API-only preview container
+        run: |
+          docker run -d \
+            --name "${CONTAINER_NAME}" \
+            --network "${NETWORK}" \
+            -p "${HOST_PORT}:8000" \
+            --restart unless-stopped \
+            -e ENV=preview \
+            -e DEBUG=true \
+            -e RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@rabbitmq_dev:5672/ \
+            -e DATABASE_URL=${{ secrets.DEV_DATABASE_URL }} \
+            "${IMAGE_NAME}:pr-${PR_NUMBER}"
+
+      - name: Wait for container to be ready
+        run: |
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:${HOST_PORT}/health || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Container is healthy"
+              exit 0
+            fi
+            echo "Attempt $i — status ${STATUS}, retrying in 5s..."
+            sleep 5
+          done
+          echo "Container failed to become healthy"
+          docker logs "${CONTAINER_NAME}"   # print logs so you can debug
+          exit 1
+
+      - name: Register Nginx subdomain
+        run: |
+          cat > /etc/nginx/sites-available/pr-${PR_NUMBER}.conf << EOF
+          server {
+              listen 80;
+              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }};
+
+              location / {
+                  proxy_pass         http://127.0.0.1:${HOST_PORT};
+                  proxy_set_header   Host \$host;
+                  proxy_set_header   X-Real-IP \$remote_addr;
+                  proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+
+                  # Prevent 502s during container restarts
+                  proxy_connect_timeout  5s;
+                  proxy_read_timeout     60s;
+                  proxy_next_upstream    error timeout http_502;
+              }
+          }
+          EOF
+          ln -sf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf \
+                 /etc/nginx/sites-enabled/pr-${PR_NUMBER}.conf
+          nginx -t && nginx -s reload
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const existing = comments.data.find(c =>
+              c.body.includes('<!-- pr-preview-bot -->')
+            );
+
+            const body = [
+              '<!-- pr-preview-bot -->',
+              '### Preview deployment',
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| **URL** | ${process.env.PREVIEW_URL} |`,
+              `| **Commit** | \`${sha}\` |`,
+              `| **Container** | \`${process.env.CONTAINER_NAME}\` |`,
+              `| **Broker** | \`rabbitmq_dev\` (shared) |`,
+              `| **Status** | Running |`,
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+
+  cleanup-preview:
+    if: github.event.action == 'closed'
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Set variables
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          echo "PR_NUMBER=$PR"                            >> $GITHUB_ENV
+          echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${PR}" >> $GITHUB_ENV
+
+      - name: Stop and remove container
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
+            docker stop "${CONTAINER_NAME}"
+            docker rm "${CONTAINER_NAME}"
+          fi
+
+      - name: Remove PR image
+        run: docker rmi "${IMAGE_NAME}:pr-${PR_NUMBER}" || true
+
+      - name: Remove Nginx config
+        run: |
+          rm -f /etc/nginx/sites-enabled/pr-${PR_NUMBER}.conf
+          rm -f /etc/nginx/sites-available/pr-${PR_NUMBER}.conf
+          nginx -t && nginx -s reload
+
+      - name: Prune dangling images
+        run: docker image prune -f
+
+      - name: Post cleanup comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.pull_request.number }},
+              body: [
+                '<!-- pr-preview-bot -->',
+                '### Preview deployment',
+                '',
+                '**Status:** Cleaned up — preview environment removed.',
+              ].join('\n'),
+            });

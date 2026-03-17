@@ -1,0 +1,83 @@
+name: PR Deployment 
+
+on: 
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: pr-preview-app
+  CONTAINER_PREFIX: pr-preview
+  APP_PORT: 3000
+
+jobs:
+  deploy-preview:
+    if: github.event.action != 'closed'
+    runs-on: [SELF_HOSTED, linux]
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: set preview environment variables
+        run: |
+          echo "PR_Number=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          echo "HOST_PORT=$((8000 + ${{ github.event.pull_request.number }}))" >> $GITHUB_ENV
+          echo "PREVIEW_URL=${{secrets.DOMAIN}}:$((8000 + ${{ github.event.pull_request.number }} % 1000))" >> $GITHUB_ENV
+      
+      - name: Build new image for PR
+        run: |
+          docker-compose -f docker-compose.yml build --no-cache
+
+      - name: Stop old container if exists
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}$"; then
+            docker stop "${CONTAINER_NAME}" && docker rm "${CONTAINER_NAME}"
+          fi
+      - name: Comment preview link on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `✅ Preview refreshed for PR #${context.payload.pull_request.number}
+            
+            Preview URL: ${process.env.PREVIEW_URL}
+            Container: ${process.env.CONTAINER_NAME}
+            Commit: ${context.payload.pull_request.head.sha}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
+  cleanup-preview:
+    if: github.event.action == 'closed'
+    runs-on: self-hosted
+
+    steps:
+      - name: Set preview variables
+        run: |
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+
+      - name: Remove preview container
+        run: |
+          docker-compose rm -f ${CONTAINER_NAME} || true
+
+      - name: Remove PR image
+        run: |
+          docker rmi ${IMAGE_NAME}:pr-${PR_NUMBER} || true
+
+     

@@ -38,9 +38,10 @@ jobs:
           echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${PR}"         >> $GITHUB_ENV
           echo "HOST_PORT=${HOST_PORT}"                           >> $GITHUB_ENV
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
-      - name: start rabbit and worker
+      - name: start rabbitmq, celery worker and nginx
         run: |
-          docker-compose -f docker-compose.yml up -d 
+          docker-compose -f docker-compose.yml up -d rabbitmq worker 
+          
 
       - name: Build API image for this PR
         run: |
@@ -66,7 +67,7 @@ jobs:
             -e ENV=preview \
             -e DEBUG=true \
             -e RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ \
-            "${IMAGE_NAME}:pr-${PR_NUMBER}"
+            "${IMAGE_NAME}:pr-${PR_NUMBER}" uvicorn app.main:app --host 0.0.0.0 --port 8000
 
       - name: Wait for container to be ready
         run: |

@@ -40,7 +40,7 @@ jobs:
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
       - name: start rabbitmq, celery worker and nginx
         run: |
-          docker-compose -f docker-compose.yml up -d rabbitmq worker 
+          docker-compose -f docker-compose.yml up -d rabbitmq worker nginx
           
 
       - name: Build API image for this PR
@@ -87,27 +87,29 @@ jobs:
 
       - name: Register Nginx subdomain
         run: |
-          cat > /etc/nginx/sites-available/pr-${PR_NUMBER}.conf << EOF
+          # Write to /tmp first (no sudo needed)
+          cat > /tmp/pr-${PR_NUMBER}.conf << EOF
           server {
               listen 80;
-              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }} _;
+              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }};
 
               location / {
                   proxy_pass         http://127.0.0.1:${HOST_PORT};
                   proxy_set_header   Host \$host;
                   proxy_set_header   X-Real-IP \$remote_addr;
                   proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
-
-                  # Prevent 502s during container restarts
                   proxy_connect_timeout  5s;
                   proxy_read_timeout     60s;
                   proxy_next_upstream    error timeout http_502;
               }
           }
           EOF
-          ln -sf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf \
-                 /etc/nginx/sites-enabled/pr-${PR_NUMBER}.conf
-          nginx -t && nginx -s reload
+
+          # Move into nginx with sudo
+          sudo cp /tmp/pr-${PR_NUMBER}.conf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf
+          sudo ln -sf /etc/nginx/sites-available/pr-${PR_NUMBER}.conf \
+                      /etc/nginx/sites-enabled/pr-${PR_NUMBER}.conf
+          sudo nginx -t && sudo nginx -s reload
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v7

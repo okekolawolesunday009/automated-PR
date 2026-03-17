@@ -43,7 +43,7 @@ jobs:
           docker-compose -f docker-compose.yml up -d rabbitmq celery_worker nginx
           
 
-      - name: Build API image for this PR
+      - name: Build API image for this PR's
         run: |
           docker build -t "${IMAGE_NAME}:pr-${PR_NUMBER}" .
 

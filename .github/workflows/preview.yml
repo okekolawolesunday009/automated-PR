@@ -42,7 +42,7 @@ jobs:
     
       - name: start rabbitmq, celery worker 
         run: |
-          docker compose -f docker-compose.yml up -d rabbitmq worker 
+          docker compose -f docker-compose.yml up -d rabbitmq worker nginx
           
 
       - name: Build API image for this PR's
@@ -90,6 +90,7 @@ jobs:
       - name: Register Nginx subdomain
         run: |
           # Write config into the nginx container's config directory
+          
            #remove default.conf
           rm -f /etc/nginx/conf.d/default.conf
           # unlink old config if exists
@@ -122,6 +123,7 @@ jobs:
           docker cp /tmp/pr-${PR_NUMBER}.conf nginx:/etc/nginx/conf.d/pr-${PR_NUMBER}.conf
 
           # Test config then reload inside the containers
+
           docker exec nginx nginx -t
           docker exec nginx nginx -s reload
           

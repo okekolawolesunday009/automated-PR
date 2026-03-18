@@ -40,7 +40,7 @@ jobs:
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
 
     
-      - name: start rabbitmq, celery worker and nginx
+      - name: start rabbitmq, celery worker 
         run: |
           docker compose -f docker-compose.yml up -d rabbitmq worker nginx
           
@@ -91,6 +91,8 @@ jobs:
         run: |
           # Write config into the nginx container's config directory
           cat > /tmp/pr-${PR_NUMBER}.conf << EOF
+          #remove default.conf
+          rm -f /etc/nginx/conf.d/default.conf
           server {
               listen 80;
               server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }};

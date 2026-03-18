@@ -38,7 +38,7 @@ jobs:
       
       - name: Build new image for PR
         run: |
-          docker-compose -f docker-compose.yml build --no-cache
+          docker compose -f docker-compose.yml build --no-cache
 
       - name: Stop old container if exists
         run: |

@@ -121,7 +121,7 @@ jobs:
           # Copy the config file into the running nginx container
           docker cp /tmp/pr-${PR_NUMBER}.conf nginx:/etc/nginx/conf.d/pr-${PR_NUMBER}.conf
 
-          # Test config then reload inside the container
+          # Test config then reload inside the containers
           docker exec nginx nginx -t
           docker exec nginx nginx -s reload
           

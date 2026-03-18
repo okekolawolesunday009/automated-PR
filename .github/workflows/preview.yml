@@ -105,7 +105,7 @@ jobs:
          
           server {
               listen 80;
-              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }};
+              server_name pr-${PR_NUMBER}.preview.${{ secrets.DOMAIN }} 13.53.66.81;
 
               location / {
                   proxy_pass         http://127.0.0.1:${HOST_PORT};

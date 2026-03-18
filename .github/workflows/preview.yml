@@ -38,6 +38,8 @@ jobs:
           echo "CONTAINER_NAME=${CONTAINER_PREFIX}-${PR}"         >> $GITHUB_ENV
           echo "HOST_PORT=${HOST_PORT}"                           >> $GITHUB_ENV
           echo "PREVIEW_URL=https://pr-${PR}.preview.${{ secrets.DOMAIN }}" >> $GITHUB_ENV
+
+    
       - name: start rabbitmq, celery worker and nginx
         run: |
           docker-compose -f docker-compose.yml up -d rabbitmq celery_worker nginx

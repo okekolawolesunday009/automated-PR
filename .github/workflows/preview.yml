@@ -42,7 +42,7 @@ jobs:
     
       - name: start rabbitmq, celery worker and nginx
         run: |
-          docker-compose -f docker-compose.yml up -d rabbitmq celery_worker nginx
+          docker-compose -f docker-compose.yml up -d rabbitmq worker nginx
           
 
       - name: Build API image for this PR's

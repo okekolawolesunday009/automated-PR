@@ -108,7 +108,7 @@ jobs:
           EOF
 
           # Copy the config file into the running nginx container
-          docker cp /tmp/pr-${PR_NUMBER}.conf nginx_dev:/etc/nginx/conf.d/pr-${PR_NUMBER}.conf
+          docker cp /tmp/pr-${PR_NUMBER}.conf nginx:/etc/nginx/conf.d/pr-${PR_NUMBER}.conf
 
           # Test config then reload inside the container
           docker exec nginx nginx -t
